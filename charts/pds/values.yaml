@@ -1,0 +1,163 @@
+image:
+  repository: ghcr.io/bluesky-social/pds
+  pullPolicy: IfNotPresent
+  tag: "0.4"
+
+imagePullSecrets: []
+
+nameOverride: ""
+fullnameOverride: ""
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext: {}
+
+securityContext: {}
+
+service:
+  type: ClusterIP
+  port: 3000
+
+# Gateway API HTTPRoute. MicroK8s ingress addon provisions a Traefik-based
+# Gateway named "traefik-gateway" in the "ingress" namespace.
+httpRoute:
+  enabled: true
+  annotations: {}
+  parentRefs:
+    - name: traefik-gateway
+      namespace: ingress
+  hostnames: []
+  # - pds.yourdomain.com
+
+# Application config
+config:
+  # Required: public hostname the PDS is reachable at, without scheme (e.g. pds.yourdomain.com).
+  # This is used as PDS_HOSTNAME and becomes the did:web identity for the server.
+  # Cannot be changed after first start without migrating all accounts.
+  hostname: ""
+
+  # Admin contact email address (PDS_CONTACT_EMAIL_ADDRESS).
+  adminEmail: ""
+
+  # SMTP connection string for outbound email (PDS_EMAIL_SMTP_URL).
+  # Required for account email verification.
+  # Format: smtps://user:password@smtp.example.com or smtp://user:password@smtp.example.com:587
+  emailSmtpUrl: ""
+
+  # From address for outbound email (PDS_EMAIL_FROM_ADDRESS).
+  emailFromAddress: ""
+
+  # Require an invite code to create an account. Recommended for personal PDS.
+  inviteRequired: true
+
+  # Enable rate limiting.
+  rateLimitsEnabled: true
+
+  # Upload size limit in bytes (default 100 MB).
+  blobUploadLimit: 104857600
+
+  # Port the PDS process listens on inside the container.
+  port: 3000
+
+  logLevel: info
+
+# S3-compatible blobstore. Points at the MicroCeph RGW object gateway.
+# Use the node's LAN IP rather than a .local hostname: mDNS does not resolve
+# inside pods. RGW must be enabled on the cluster and a user with an
+# access_key/secret_key must exist (see RPi.md Object storage section).
+blobstore:
+  bucket: "pds-blobs"
+  # RGW requires path-style addressing; virtual-hosted style won't resolve without wildcard DNS.
+  forcePathStyle: true
+  region: "us-east-1"
+  # Replace with your node-01 LAN IP (e.g. http://192.168.1.100:7480).
+  endpoint: ""
+
+# First PDS user account. Created manually post-install via pdsadmin (see NOTES after helm upgrade).
+# These values are not used by any chart template; they are here as a reference for the operator.
+pdsUser:
+  # Handle for the account, must be under the PDS hostname (e.g. you.pds.yourdomain.com).
+  handle: ""
+  # Email address for the account.
+  email: ""
+
+# Credentials. Set at install time with --set or -f my-secrets.yaml.
+# Do not commit values containing these to source control.
+credentials:
+  jwtSecret: ""
+  adminPassword: ""
+  # One secp256k1 private key for the whole server (not one per user).
+  # User accounts get did:plc identities on plc.directory at account-creation
+  # time. Each genesis operation lists this key as the rotation authority so
+  # the server can sign future DID updates (handle changes, hostname migration).
+  # The server's own identity is did:web (from config.hostname); this key is
+  # only for hosted user account DIDs. Back up outside the cluster.
+  # Generate with: openssl rand -hex 32
+  plcRotationKey: ""
+  # MicroCeph RGW credentials from: sudo radosgw-admin user create --uid=pds --display-name=pds
+  blobstoreAccessKeyId: ""
+  blobstoreSecretAccessKey: ""
+  # Name of a pre-existing Secret to use instead of creating one.
+  # Must contain keys: jwt-secret, admin-password, plc-rotation-key,
+  #   blobstore-access-key-id, blobstore-secret-access-key
+  existingSecret: ""
+
+# PVC for SQLite databases and per-user actor stores (/pds directory).
+# Blobs are stored in MicroCeph RGW, not here.
+persistence:
+  storageClass: "ceph-rbd"
+  size: 5Gi
+  existingClaim: ""
+
+cloudflare:
+  enabled: false
+  # ID of the tunnel created with: cloudflared tunnel create pds
+  tunnelId: ""
+  # Public hostname to expose, must match config.hostname (e.g. pds.yourdomain.com).
+  hostname: ""
+  # Name of a pre-existing Secret containing credentials.json from:
+  #   kubectl create secret generic <name> \
+  #     --from-file=credentials.json=~/.cloudflare/tunnels/<tunnel-id>.json
+  credentialsSecret: "cloudflared-credentials"
+  image:
+    # Pin to a specific release; check https://github.com/cloudflare/cloudflared/releases
+    tag: "2026.6.1"
+    pullPolicy: IfNotPresent
+
+# Resources sized for a 3-node Raspberry Pi cluster:
+# - node-01 (control plane): 8 GB RAM
+# - node-02, node-03 (workers): 4 GB RAM each
+# The PDS is a Node.js app serving a personal instance (1–20 users).
+# A container limit avoids BestEffort QoS (oom_score_adj=1000) and keeps
+# the kernel from killing this pod before less-critical workloads under
+# memory pressure.
+resources:
+  limits:
+    memory: 1Gi
+  requests:
+    cpu: 200m
+    memory: 256Mi
+
+livenessProbe:
+  httpGet:
+    path: /xrpc/_health
+    port: http
+  initialDelaySeconds: 30
+  periodSeconds: 15
+  timeoutSeconds: 5
+  failureThreshold: 5
+
+readinessProbe:
+  httpGet:
+    path: /xrpc/_health
+    port: http
+  initialDelaySeconds: 15
+  periodSeconds: 10
+  timeoutSeconds: 5
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
