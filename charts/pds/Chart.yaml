@@ -1,0 +1,16 @@
+apiVersion: v2
+name: pds
+description: Bluesky PDS (Personal Data Server) for the AT Protocol
+type: application
+version: 0.1.0
+appVersion: "0.4"
+keywords:
+  - bluesky
+  - atproto
+  - pds
+  - fediverse
+home: https://github.com/santisbon/pds
+sources:
+  - https://github.com/santisbon/pds
+maintainers:
+  - name: santisbon

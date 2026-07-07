@@ -1,0 +1,21 @@
+# Helm artifacts
+*.tgz
+charts/*/charts/
+
+# Secrets and local config: never commit
+my-secrets.yaml
+secrets*.yaml
+*-secrets.yaml
+*-secret.yaml
+
+# Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+*.bkp

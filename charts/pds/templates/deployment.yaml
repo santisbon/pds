@@ -1,0 +1,188 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "pds.fullname" . }}
+  labels:
+    {{- include "pds.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  # Recreate is required: the data PVC uses ReadWriteOnce and cannot be
+  # shared across pods. The PLC rotation key and SQLite state are also
+  # not safe to run in multiple concurrent instances.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "pds.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "pds.labels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: {{ .Chart.Name }}
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.config.port }}
+              protocol: TCP
+          env:
+            # Service identity
+            - name: PDS_HOSTNAME
+              value: {{ required "config.hostname is required" .Values.config.hostname | quote }}
+            - name: PDS_PORT
+              value: {{ .Values.config.port | quote }}
+
+            # Data directory. PVC mounted here holds SQLite DBs and actor stores
+            - name: PDS_DATA_DIRECTORY
+              value: "/pds"
+
+            # Blobstore: S3-compatible (MicroCeph RGW)
+            - name: PDS_BLOBSTORE_S3_BUCKET
+              value: {{ required "blobstore.bucket is required" .Values.blobstore.bucket | quote }}
+            - name: PDS_BLOBSTORE_S3_REGION
+              value: {{ .Values.blobstore.region | quote }}
+            - name: PDS_BLOBSTORE_S3_ENDPOINT
+              value: {{ required "blobstore.endpoint is required" .Values.blobstore.endpoint | quote }}
+            - name: PDS_BLOBSTORE_S3_FORCE_PATH_STYLE
+              value: {{ .Values.blobstore.forcePathStyle | quote }}
+            {{- if .Values.blobstore.uploadTimeoutMs }}
+            - name: PDS_BLOBSTORE_S3_UPLOAD_TIMEOUT_MS
+              value: {{ .Values.blobstore.uploadTimeoutMs | quote }}
+            {{- end }}
+            - name: PDS_BLOBSTORE_S3_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "pds.secretName" . }}
+                  key: blobstore-access-key-id
+            - name: PDS_BLOBSTORE_S3_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "pds.secretName" . }}
+                  key: blobstore-secret-access-key
+
+            # Secrets
+            - name: PDS_JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "pds.secretName" . }}
+                  key: jwt-secret
+            - name: PDS_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "pds.secretName" . }}
+                  key: admin-password
+            - name: PDS_PLC_ROTATION_KEY_K256_PRIVATE_KEY_HEX
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "pds.secretName" . }}
+                  key: plc-rotation-key
+
+            # Federation endpoints (upstream defaults)
+            - name: PDS_DID_PLC_URL
+              value: "https://plc.directory"
+            - name: PDS_BSKY_APP_VIEW_URL
+              value: "https://api.bsky.app"
+            - name: PDS_BSKY_APP_VIEW_DID
+              value: "did:web:api.bsky.app"
+            - name: PDS_REPORT_SERVICE_URL
+              value: "https://mod.bsky.app"
+            - name: PDS_REPORT_SERVICE_DID
+              value: "did:plc:ar7c4by46qjdydhdevvrndac"
+            - name: PDS_CRAWLERS
+              value: "https://bsky.network"
+
+            # Email
+            {{- if .Values.credentials.emailSmtpUrl }}
+            - name: PDS_EMAIL_SMTP_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "pds.secretName" . }}
+                  key: email-smtp-url
+            {{- end }}
+            {{- if .Values.config.emailFromAddress }}
+            - name: PDS_EMAIL_FROM_ADDRESS
+              value: {{ .Values.config.emailFromAddress | quote }}
+            {{- end }}
+            {{- if .Values.config.adminEmail }}
+            - name: PDS_CONTACT_EMAIL_ADDRESS
+              value: {{ .Values.config.adminEmail | quote }}
+            {{- end }}
+
+            # Branding (email templates). Unset, these default to serviceName
+            # "<hostname> PDS", homeUrl https://bsky.app, and Bluesky's own
+            # logo/mark images - see README Production notes.
+            {{- if .Values.config.serviceName }}
+            - name: PDS_SERVICE_NAME
+              value: {{ .Values.config.serviceName | quote }}
+            {{- end }}
+            {{- if .Values.config.homeUrl }}
+            - name: PDS_HOME_URL
+              value: {{ .Values.config.homeUrl | quote }}
+            {{- end }}
+            {{- if .Values.config.logoUrl }}
+            - name: PDS_LOGO_URL
+              value: {{ .Values.config.logoUrl | quote }}
+            {{- end }}
+
+            # Policy
+            - name: PDS_INVITE_REQUIRED
+              value: {{ .Values.config.inviteRequired | quote }}
+            - name: PDS_RATE_LIMITS_ENABLED
+              value: {{ .Values.config.rateLimitsEnabled | quote }}
+            - name: PDS_BLOB_UPLOAD_LIMIT
+              value: {{ .Values.config.blobUploadLimit | int64 | quote }}
+
+            # Logging
+            - name: LOG_ENABLED
+              value: "true"
+            - name: LOG_LEVEL
+              value: {{ .Values.config.logLevel | quote }}
+
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: data
+              mountPath: /pds
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "pds.pvcData" . }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

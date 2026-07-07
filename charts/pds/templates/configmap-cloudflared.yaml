@@ -1,0 +1,18 @@
+{{- if .Values.cloudflare.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "pds.fullname" . }}-cloudflared
+  labels:
+    {{- include "pds.labels" . | nindent 4 }}
+data:
+  config.yaml: |
+    tunnel: {{ required "cloudflare.tunnelId is required when cloudflare.enabled=true" .Values.cloudflare.tunnelId }}
+    credentials-file: /etc/cloudflared/credentials.json
+    ingress:
+      - hostname: {{ required "cloudflare.hostname is required when cloudflare.enabled=true" .Values.cloudflare.hostname }}
+        service: http://{{ include "pds.fullname" . }}:{{ .Values.service.port }}
+      - hostname: "*.{{ .Values.cloudflare.hostname }}"
+        service: http://{{ include "pds.fullname" . }}:{{ .Values.service.port }}
+      - service: http_status:404
+{{- end }}
