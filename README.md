@@ -152,7 +152,7 @@ bash scripts/create-invite-code.sh $APP_DOMAIN
 bash scripts/create-account.sh $APP_DOMAIN <username> <your-email> <invite-code>
 ```
 
-Then log into [bsky.app](https://bsky.app) by choosing Hosting provider, Custom, and entering the url above as the Server address. 
+Then log into [bsky.app](https://bsky.app) with your handle. The hosting provider (your domain) should be discovered automatically.
 
 ## Install
 
