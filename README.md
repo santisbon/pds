@@ -12,7 +12,7 @@ A Helm chart for deploying a self-hosted [AT Protocol](https://atproto.com/guide
 - [Architecture](#architecture)
 - [Prerequisites](#prerequisites)
 - [TL;DR](#tldr)
-- [Install](#install)
+- [Install notes](#install-notes)
   - [RGW endpoint inside the cluster](#rgw-endpoint-inside-the-cluster)
   - [Email (Resend)](#email-resend)
 - [Key config values](#key-config-values)
@@ -154,7 +154,7 @@ bash scripts/create-account.sh $APP_DOMAIN <username> <your-email> <invite-code>
 
 Then log into [bsky.app](https://bsky.app) with your handle. The hosting provider (your domain) should be discovered automatically.
 
-## Install
+## Install notes
 
 **Credentials** must be provided at install time. Use a values file (gitignored) rather than `--set` flags so they don't appear in your shell history.
 
