@@ -48,7 +48,7 @@ A Helm chart for deploying a self-hosted [AT Protocol](https://atproto.com/guide
 The [PDS](https://github.com/bluesky-social/pds) image (`ghcr.io/bluesky-social/pds`) runs on port 3000. Caddy from the upstream compose file is replaced by the Cloudflare Tunnel. TLS terminates at the Cloudflare edge, the tunnel carries plain HTTP to the ClusterIP service inside the cluster, and WebSockets are supported natively by the tunnel.
 
 If you want to set up your own low-cost, quiet, energy-efficient, tiny, cloud-native homelab as a Raspberry Pi cluster make sure each node:
-- Has at least 8GB memory (for control plane nodes) or 4GB (for worker nodes) so you have room to grow and host other projects. The PDS pod uses about 135 Mi + 20-40 Mi for each of the two cloudflared replica pods
+- Has at least 8GB memory (for control plane nodes) or 4GB (for worker nodes). This is the bare minimum for MicroK8s + MicroCeph; I'd recommend 8GB for all nodes. The PDS pod uses about 135 Mi + 20-40 Mi for each of the two cloudflared replica pods
 - Is flashed with the USB Boot utility. You can use the [Raspberry Pi Imager](https://www.raspberrypi.com/software/) for this
 - Boots from an SSD. If using a SATA drive connected to a Pi USB port, use a cable/adapter that has an **ASMedia** chipset
 - Has [`cgroups`](https://canonical.com/microk8s/docs/install-raspberry-pi) enabled
