@@ -137,7 +137,7 @@ cloudflare:
   hostname: ""
   # Name of a pre-existing Secret containing credentials.json from:
   #   kubectl create secret generic <name> \
-  #     --from-file=credentials.json=~/.cloudflare/tunnels/<tunnel-id>.json
+  #     --from-file=credentials.json=~/.cloudflared/<tunnel-id>.json
   credentialsSecret: "cloudflared-credentials"
   image:
     # Pin to a specific release; check https://github.com/cloudflare/cloudflared/releases
