@@ -45,7 +45,9 @@ A Helm chart for deploying a self-hosted [AT Protocol](https://atproto.com/guide
 
 ![Architecture](pds-architecture.drawio.svg)
 
-The [PDS](https://github.com/bluesky-social/pds) image (`ghcr.io/bluesky-social/pds`) runs on port 3000. Caddy from the upstream compose file is replaced by the Cloudflare Tunnel. TLS terminates at the Cloudflare edge, the tunnel carries plain HTTP to the ClusterIP service inside the cluster, and WebSockets are supported natively by the tunnel.
+The [PDS](https://github.com/bluesky-social/pds) image (`ghcr.io/bluesky-social/pds`) runs on port 3000. Caddy from the upstream compose file is replaced by the Cloudflare Tunnel. TLS terminates at the Cloudflare edge. The edge reaches the `cloudflared` pods over a TLS 1.3 QUIC tunnel that by default uses [post-quantum key agreement](https://developers.cloudflare.com/ssl/post-quantum-cryptography/pqc-cloudflare-products/) (X25519MLKEM768, protecting confidentiality; signatures are still classical), and `cloudflared` then forwards plain HTTP to the ClusterIP service inside the cluster. WebSockets are supported natively by the tunnel.
+
+The chart does not pass `--protocol`, so `cloudflared` uses the default `auto`, which prefers QUIC but [falls back to HTTP/2 if it cannot establish UDP connections](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/configure-tunnels/cloudflared-parameters/run-parameters/). Post-quantum key agreement is unavailable on the HTTP/2 transport, and even on QUIC it falls back to classical if there are issues connecting. Add the `--post-quantum` flag to the `cloudflared` args if you want QUIC restricted to post-quantum key agreements with no fallback.
 
 If you want to set up your own low-cost, quiet, energy-efficient, tiny, cloud-native homelab as a Raspberry Pi cluster make sure each node:
 - Has at least 8GB memory (for control plane nodes) or 4GB (for worker nodes). This is the bare minimum for MicroK8s + MicroCeph; I'd recommend 8GB for all nodes. The PDS pod uses about 135 Mi + 20-40 Mi for each of the two cloudflared replica pods
