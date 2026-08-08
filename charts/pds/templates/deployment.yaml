@@ -129,9 +129,9 @@ spec:
               value: {{ .Values.config.adminEmail | quote }}
             {{- end }}
 
-            # Branding (email templates). Unset, these default to serviceName
-            # "<hostname> PDS", homeUrl https://bsky.app, and Bluesky's own
-            # logo/mark images - see README Production notes.
+            # Branding (email templates and the PDS-served web screens:
+            # sign-in, sign-up, OAuth authorization, account management).
+            # All optional - see README "Branding".
             {{- if .Values.config.serviceName }}
             - name: PDS_SERVICE_NAME
               value: {{ .Values.config.serviceName | quote }}
@@ -143,6 +143,46 @@ spec:
             {{- if .Values.config.logoUrl }}
             - name: PDS_LOGO_URL
               value: {{ .Values.config.logoUrl | quote }}
+            {{- end }}
+            {{- if .Values.config.privacyPolicyUrl }}
+            - name: PDS_PRIVACY_POLICY_URL
+              value: {{ .Values.config.privacyPolicyUrl | quote }}
+            {{- end }}
+            {{- if .Values.config.termsOfServiceUrl }}
+            - name: PDS_TERMS_OF_SERVICE_URL
+              value: {{ .Values.config.termsOfServiceUrl | quote }}
+            {{- end }}
+            {{- if .Values.config.supportUrl }}
+            - name: PDS_SUPPORT_URL
+              value: {{ .Values.config.supportUrl | quote }}
+            {{- end }}
+            {{- if .Values.config.primaryColor }}
+            - name: PDS_PRIMARY_COLOR
+              value: {{ .Values.config.primaryColor | quote }}
+            {{- end }}
+            {{- if .Values.config.errorColor }}
+            - name: PDS_ERROR_COLOR
+              value: {{ .Values.config.errorColor | quote }}
+            {{- end }}
+            {{- if .Values.config.warningColor }}
+            - name: PDS_WARNING_COLOR
+              value: {{ .Values.config.warningColor | quote }}
+            {{- end }}
+            {{- if .Values.config.infoColor }}
+            - name: PDS_INFO_COLOR
+              value: {{ .Values.config.infoColor | quote }}
+            {{- end }}
+            {{- if .Values.config.successColor }}
+            - name: PDS_SUCCESS_COLOR
+              value: {{ .Values.config.successColor | quote }}
+            {{- end }}
+            {{- if .Values.config.backgroundLightUrl }}
+            - name: PDS_BACKGROUND_LIGHT_URL
+              value: {{ .Values.config.backgroundLightUrl | quote }}
+            {{- end }}
+            {{- if .Values.config.backgroundDarkUrl }}
+            - name: PDS_BACKGROUND_DARK_URL
+              value: {{ .Values.config.backgroundDarkUrl | quote }}
             {{- end }}
 
             # Policy
@@ -158,6 +198,38 @@ spec:
               value: "true"
             - name: LOG_LEVEL
               value: {{ .Values.config.logLevel | quote }}
+
+            {{- /* Parenthesized so rendering survives a `telemetry`-less values set,
+                 e.g. helm upgrade --reuse-values from a pre-0.2.0 release. */}}
+            {{- if (.Values.telemetry).enabled }}
+
+            # OpenTelemetry - see values.yaml `telemetry` and README
+            # "Metrics (OpenTelemetry)". NODE_OPTIONS loads the OTel SDK
+            # bundled with the PDS image; safe to set outright because the
+            # image defines no NODE_OPTIONS of its own to clobber.
+            - name: NODE_OPTIONS
+              value: "--import=@atproto/pds/telemetry"
+            - name: OTEL_SERVICE_NAME
+              value: {{ .Values.telemetry.serviceName | quote }}
+            # The metrics-specific endpoint var, not the generic
+            # OTEL_EXPORTER_OTLP_ENDPOINT: the PDS enables exactly the signals
+            # configured, so this keeps traces/logs off unless added via
+            # telemetry.extraEnv.
+            - name: OTEL_EXPORTER_OTLP_METRICS_ENDPOINT
+              value: {{ required "telemetry.metricsEndpoint is required when telemetry.enabled=true" .Values.telemetry.metricsEndpoint | quote }}
+            - name: OTEL_EXPORTER_OTLP_METRICS_PROTOCOL
+              value: {{ .Values.telemetry.metricsProtocol | quote }}
+            - name: OTEL_METRIC_EXPORT_INTERVAL
+              value: {{ .Values.telemetry.metricExportInterval | quote }}
+            - name: OTEL_SEMCONV_STABILITY_OPT_IN
+              value: {{ .Values.telemetry.semconvStabilityOptIn | quote }}
+            - name: OTEL_NODE_RESOURCE_DETECTORS
+              value: {{ .Values.telemetry.nodeResourceDetectors | quote }}
+            {{- range $name, $value := .Values.telemetry.extraEnv }}
+            - name: {{ $name }}
+              value: {{ $value | quote }}
+            {{- end }}
+            {{- end }}
 
           livenessProbe:
             {{- toYaml .Values.livenessProbe | nindent 12 }}

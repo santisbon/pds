@@ -1,6 +1,10 @@
 image:
   repository: ghcr.io/bluesky-social/pds
   pullPolicy: IfNotPresent
+  # "0.4" is upstream's rolling tag; with IfNotPresent a node that has it
+  # cached never re-pulls. To deterministically deploy a specific upstream
+  # release, set this to its immutable sha-<git-commit> tag instead.
+  # See README "The rolling 0.4 image tag".
   tag: "0.4"
 
 imagePullSecrets: []
@@ -43,14 +47,39 @@ config:
   # From address for outbound email (PDS_EMAIL_FROM_ADDRESS).
   emailFromAddress: ""
 
-  # Branding shown in email templates (confirm/reset/delete/PLC-operation
-  # emails). All optional; unset defaults to serviceName "<hostname> PDS",
-  # homeUrl https://bsky.app, and Bluesky's own logo/mark images.
-  # logoUrl is a single image used for both the header logo (110px) and the
-  # small corner mark (24px) shown in every email, just at different sizes.
+  # Branding. serviceName, homeUrl, and logoUrl apply to the email templates
+  # (confirm/reset/delete/PLC-operation emails) and to the web screens the PDS
+  # itself serves (sign-in, sign-up, OAuth authorization, account management).
+  # The remaining values apply to the web screens only. All optional; unset,
+  # serviceName defaults to "<hostname> PDS", emails fall back to Bluesky's
+  # own logo/mark images and a https://bsky.app home link, and the web screens
+  # show no logo, footer links, or background at all.
+  # In emails, logoUrl is a single image used for both the header logo (110px)
+  # and the small corner mark (24px), just at different sizes; on the web
+  # screens the same image also appears above the sign-in card, and there it
+  # only loads over https:. See README "Branding".
   serviceName: ""
   homeUrl: ""
   logoUrl: ""
+  # Footer links on the web screens (not used in emails). Unset links don't
+  # appear.
+  privacyPolicyUrl: ""
+  termsOfServiceUrl: ""
+  supportUrl: ""
+  # Web screen colors. Any CSS color, e.g. "#1083fe" or "rgb(16 131 254)".
+  # Unset falls back to the stock palette: primary #8338ec, error #dc2626,
+  # warning #ffab0f, info #007aff, success #17cc88. Text on primary-colored
+  # buttons switches between black and white automatically for contrast.
+  primaryColor: ""
+  errorColor: ""
+  warningColor: ""
+  infoColor: ""
+  successColor: ""
+  # Background image behind the auth card, picked by the visitor's light/dark
+  # preference and scaled to fill (cropped at the edges). https: URLs only.
+  # ~2000px wide, well-compressed (comfortably under 1 MB) is plenty.
+  backgroundLightUrl: ""
+  backgroundDarkUrl: ""
 
   # Require an invite code to create an account. Recommended for personal PDS.
   inviteRequired: true
@@ -58,13 +87,50 @@ config:
   # Enable rate limiting.
   rateLimitsEnabled: true
 
-  # Upload size limit in bytes (default 100 MB).
-  blobUploadLimit: 104857600
+  # Upload size limit in bytes (300 MB, matching the upstream default; it was
+  # 100 MB before chart 0.2.0 - set the old value here explicitly if you want
+  # to keep the smaller cap). Advertised to clients via the unauthenticated
+  # com.atproto.server.describeServer endpoint. Large uploads on slow RGW
+  # hardware may also need blobstore.uploadTimeoutMs raised.
+  blobUploadLimit: 314572800
 
   # Port the PDS process listens on inside the container.
   port: 3000
 
   logLevel: info
+
+# OpenTelemetry metrics, off by default. When enabled, the chart sets
+# NODE_OPTIONS=--import=@atproto/pds/telemetry on the PDS container (loading
+# the OTel SDK bundled inside the PDS image) plus the OTEL_* env vars below,
+# and the PDS pushes metrics over OTLP to metricsEndpoint. There is no
+# /metrics endpoint to scrape. Requires an image with @atproto/pds 0.5.26+
+# (label social.bsky.pds.telemetry=otel); on older images the PDS exits with
+# ERR_PACKAGE_PATH_NOT_EXPORTED and crash-loops. See README
+# "Metrics (OpenTelemetry)".
+telemetry:
+  enabled: false
+  # Required when enabled: an OTLP metrics receiver URL reachable from the
+  # pod, e.g. a Prometheus v3 with its OTLP receiver enabled:
+  #   http://<prometheus-svc>.<namespace>.svc:9090/api/v1/otlp/v1/metrics
+  # or an OpenTelemetry Collector's OTLP HTTP port.
+  metricsEndpoint: ""
+  # OTEL_SERVICE_NAME
+  serviceName: "pds"
+  # OTEL_EXPORTER_OTLP_METRICS_PROTOCOL
+  metricsProtocol: "http/protobuf"
+  # OTEL_METRIC_EXPORT_INTERVAL (milliseconds)
+  metricExportInterval: 15000
+  # OTEL_SEMCONV_STABILITY_OPT_IN. Upstream's Grafana dashboard is built
+  # against the stable HTTP semantic convention names this opts into.
+  semconvStabilityOptIn: "http"
+  # OTEL_NODE_RESOURCE_DETECTORS. Deliberately drops the default set's
+  # AWS/GCP/Azure detectors, which probe cloud metadata services at startup
+  # and log warnings on non-cloud clusters.
+  nodeResourceDetectors: "env,host,os,process,serviceinstance,container"
+  # Additional OTEL_* variables rendered verbatim as env vars, e.g. to also
+  # enable traces or logs (the PDS enables exactly the signals you configure):
+  #   OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://tempo.monitoring.svc:4318/v1/traces
+  extraEnv: {}
 
 # S3-compatible blobstore. Points at the MicroCeph RGW object gateway.
 # Use the node's LAN IP rather than a .local hostname: mDNS does not resolve

@@ -15,7 +15,10 @@ A Helm chart for deploying a self-hosted [AT Protocol](https://atproto.com/guide
 - [Install notes](#install-notes)
   - [RGW endpoint inside the cluster](#rgw-endpoint-inside-the-cluster)
   - [Email (Resend)](#email-resend)
+  - [Branding](#branding)
 - [Key config values](#key-config-values)
+  - [The rolling `0.4` image tag](#the-rolling-04-image-tag)
+- [Metrics (OpenTelemetry)](#metrics-opentelemetry)
 - [Publishing the chart](#publishing-the-chart)
   - [OCI registry (recommended)](#oci-registry-recommended)
     - [MicroK8s built-in registry](#microk8s-built-in-registry)
@@ -138,7 +141,7 @@ helm push pds-*.tgz oci://ghcr.io/<github-user>/charts
 # (oci://ghcr.io/<github-user>/charts/pds), or mine directly. 
 # Replace with your email and blob store endpoint
 helm upgrade --install pds oci://ghcr.io/<github-user>/charts/pds \
-  --version 0.1.0 \
+  --version 0.2.0 \
   --namespace pds --create-namespace \
   --set config.hostname=$APP_DOMAIN \
   --set config.adminEmail=you@example.com \
@@ -195,11 +198,15 @@ config:
 
 `smtps://` uses port 465 with implicit TLS. The `From` domain in `emailFromAddress` must exactly match the domain verified in the Resend dashboard. A parent-domain match isn't sufficient (e.g. verifying `mail.yourdomain.com` does not authorize sending from `noreply@yourdomain.com`).
 
-**Branding in emails:** every account email (email address confirmation, password reset, account deletion, PLC operation) includes a header logo (110px) and a small 24px "mark" image in the corner, each with `alt="{{serviceName}}"`. Left unset, `config.serviceName` defaults to `"<hostname> PDS"`, and the two images default to **two different built-in Bluesky assets**: the blue butterfly + "Bluesky" wordmark for the header, and a separate small black butterfly for the corner mark. If your mail client blocks remote images from an unfamiliar sending domain (common default behavior), you'll see the alt text instead: `"yourdomain.com PDS"`, which can look like garbled/truncated text in the small space it's rendered in.
+### Branding
 
-Set `config.serviceName`, `config.homeUrl`, and `config.logoUrl` to replace the defaults with your own branding. Note `logoUrl` only exposes a single override: once set, it replaces **both** the header logo and the corner mark with that same one image (just rendered at different sizes). You can't configure two separate custom images the way the two *defaults* happen to be two separate images.
+Since upstream's August 2026 release ([PDS customization and metrics](https://atproto.com/blog/pds-customization-and-metrics)), branding covers two surfaces: the emails the PDS sends, and the web screens the PDS itself serves (sign-in, sign-up, OAuth authorization, and the account-management page). `config.serviceName`, `config.homeUrl`, and `config.logoUrl` apply to both surfaces; the other values below are web-only. Everything is optional, and `config.serviceName` unset defaults to `"<hostname> PDS"` in both places. The web screens need a new enough PDS image to exist at all; see [The rolling `0.4` image tag](#the-rolling-04-image-tag).
 
-**Format and size for `logoUrl`:** no server-side validation at all. It's a raw string dropped straight into an `<img src="...">` attribute, so "supported" just means whatever recipients' email clients render. Stick to **PNG, JPEG, or GIF**; avoid SVG (blocked by many clients) and WebP (inconsistent support). Display size is fixed by the template's CSS, not your file's native dimensions: `width:110px` for the header slot, `width:24px` for the corner mark slot, each auto-scaling height to preserve aspect ratio. So ~250–330px wide source images (2–3× the larger slot, for retina) are plenty; there's no benefit to going bigger. Because the same image fills both differently-shaped slots, a roughly square image (near 1:1 aspect ratio) holds up better at both sizes than a wide wordmark-style logo, which would shrink to an unreadable sliver at 24px.
+**In emails:** every account email (email address confirmation, password reset, account deletion, PLC operation) includes a header logo (110px) and a small 24px "mark" image in the corner, each with `alt="{{serviceName}}"`. Left unset, the two images default to **two different built-in Bluesky assets**: the blue butterfly + "Bluesky" wordmark for the header, and a separate small black butterfly for the corner mark; the "home" link defaults to `https://bsky.app`. If your mail client blocks remote images from an unfamiliar sending domain (common default behavior), you'll see the alt text instead: `"yourdomain.com PDS"`, which can look like garbled/truncated text in the small space it's rendered in.
+
+Note `logoUrl` only exposes a single override: once set, it replaces **both** the header logo and the corner mark with that same one image (just rendered at different sizes), and it's also the image shown above the sign-in card on the web screens. You can't configure separate custom images for these slots the way the two email *defaults* happen to be two separate images.
+
+**Format and size for `logoUrl`:** no server-side validation at all. It's a raw string dropped straight into an `<img src="...">` attribute, so for email, "supported" just means whatever recipients' email clients render. Stick to **PNG, JPEG, or GIF**; avoid SVG (blocked by many clients) and WebP (inconsistent support). (The web screens render in a real browser and take any common web format, but the same URL feeds both surfaces, so the email constraint is the binding one.) Display size is fixed by the template's CSS, not your file's native dimensions: `width:110px` for the header slot, `width:24px` for the corner mark slot, each auto-scaling height to preserve aspect ratio. So ~250–330px wide source images (2–3× the larger slot, for retina) are plenty; there's no benefit to going bigger. Because the same image fills both differently-shaped slots, a roughly square image (near 1:1 aspect ratio) holds up better at both sizes than a wide wordmark-style logo, which would shrink to an unreadable sliver at 24px.
 
 RGW isn't an option for hosting it: `blobstore.endpoint` is a private LAN address, never exposed through the Cloudflare Tunnel, so it's unreachable from wherever your email recipients actually are. Simplest fix is hosting it wherever this repo's other static image already lives: committed to this repo at the root level and served via GitHub's raw content host, no extra infrastructure needed:
 
@@ -207,20 +214,33 @@ RGW isn't an option for hosting it: `blobstore.endpoint` is a private LAN addres
 --set config.logoUrl=https://raw.githubusercontent.com/<github-user>/pds/main/at-mark.png
 ```
 
+**On the web screens:**
+
+- `config.homeUrl`, `config.privacyPolicyUrl`, `config.termsOfServiceUrl`, and `config.supportUrl` render as footer links ("Home", "Privacy Policy", "Terms of Service", "Support"). Unset links simply don't appear
+- The five color values (`config.primaryColor` for buttons, links, and focus rings, plus `errorColor`, `warningColor`, `infoColor`, `successColor` for notices) accept any CSS color, e.g. `"#1083fe"` or `"rgb(16 131 254)"`. Unset falls back to the stock palette: primary `#8338ec`, error `#dc2626`, warning `#ffab0f`, info `#007aff`, success `#17cc88`. Text on primary-colored buttons switches between black and white automatically based on the color's contrast, so no primary choice can make button labels unreadable
+- `config.backgroundLightUrl` / `config.backgroundDarkUrl` paint an image behind the auth card, chosen by the visitor's light/dark preference and scaled to fill (centered, cropped at the edges, so keep important detail away from them). The card keeps its own opaque surface, so text stays legible over any image. A well-compressed image around 2000px wide and comfortably under 1 MB is plenty; it downloads on every sign-in
+- Images on these pages (the logo and both backgrounds) load over **https:** only. The GitHub raw-content hosting shown above satisfies this
+
 ## Key config values
 
 | Value | Default | Description |
 |---|---|---|
-| `image.tag` | `"0.4"` | PDS image tag |
+| `image.tag` | `"0.4"` | PDS image tag; upstream's rolling tag, see [The rolling `0.4` image tag](#the-rolling-04-image-tag) |
 | `config.hostname` | `""` | **Required:** public hostname without scheme (e.g. `yourdomain.com`) |
 | `config.adminEmail` | `""` | Public admin contact email (`PDS_CONTACT_EMAIL_ADDRESS`) |
 | `config.emailFromAddress` | `""` | From address for outbound email |
-| `config.serviceName` | `""` | Branding shown in emails; unset defaults to `"<hostname> PDS"` |
-| `config.homeUrl` | `""` | Branding "home" link in emails; unset defaults to `https://bsky.app` |
-| `config.logoUrl` | `""` | Logo/mark image shown in emails; unset defaults to Bluesky's own |
+| `config.serviceName` | `""` | Branding shown in emails and on the web screens; unset defaults to `"<hostname> PDS"` |
+| `config.homeUrl` | `""` | "Home" link in emails (unset defaults to `https://bsky.app`) and in the web screen footer |
+| `config.logoUrl` | `""` | Logo/mark image in emails and above the sign-in card; unset defaults to Bluesky's own in emails, none on the web screens |
+| `config.privacyPolicyUrl` / `termsOfServiceUrl` / `supportUrl` | `""` | Footer links on the web screens; unset links don't appear |
+| `config.primaryColor` / `errorColor` / `warningColor` / `infoColor` / `successColor` | `""` | Web screen colors, any CSS color; unset uses the stock palette |
+| `config.backgroundLightUrl` / `backgroundDarkUrl` | `""` | Auth screen background image for light/dark mode, https only |
 | `config.inviteRequired` | `true` | Require invite codes to create accounts |
 | `config.rateLimitsEnabled` | `true` | Enable rate limiting |
-| `config.blobUploadLimit` | `104857600` | Upload limit in bytes (100 MB) |
+| `config.blobUploadLimit` | `314572800` | Upload limit in bytes (300 MB, the upstream default; was 100 MB before chart 0.2.0). Advertised to clients via `com.atproto.server.describeServer` |
+| `telemetry.enabled` | `false` | Push OpenTelemetry metrics over OTLP; see [Metrics (OpenTelemetry)](#metrics-opentelemetry) |
+| `telemetry.metricsEndpoint` | `""` | Required when telemetry is enabled: OTLP metrics receiver URL reachable from the pod |
+| `telemetry.extraEnv` | `{}` | Extra `OTEL_*` env vars, e.g. a traces endpoint |
 | `blobstore.bucket` | `"pds-blobs"` | S3 bucket name in RGW |
 | `blobstore.endpoint` | `""` | **Required:** RGW endpoint URL (use node LAN IP, not `.local`) |
 | `blobstore.region` | `"us-east-1"` | S3 region (RGW accepts any string) |
@@ -246,6 +266,32 @@ RGW isn't an option for hosting it: `blobstore.endpoint` is a private LAN addres
 | `resources.limits.memory` | `"1Gi"` | Container memory limit |
 | `resources.requests.cpu` | `"200m"` | CPU request |
 | `resources.requests.memory` | `"256Mi"` | Memory request |
+
+### The rolling `0.4` image tag
+
+The default `image.tag` `"0.4"` is upstream's **rolling** tag: it moves to every new PDS release. Upstream publishes no per-release version tags on GHCR, only `0.4`, `latest`, and an immutable `sha-<git-commit>` tag per commit. Combined with this chart's `pullPolicy: IfNotPresent`, a node that already has a `0.4` image cached keeps using it indefinitely; neither `helm upgrade` nor a pod restart re-pulls a tag that's already present. That's fine for a stable install, but it means features from a newer release (the web screen branding and telemetry from the August 2026 release, say) only exist on nodes that happened to pull `0.4` after that release shipped. Two ways to get a specific release onto the cluster:
+
+- **Pin `image.tag` to the `sha-<commit>` tag of the release you want.** This is the approach this chart's docs assume: deterministic (every node runs the same bytes), and updates stay an explicit value change consistent with this chart having no automatic image updates (see [Production notes](#production-notes)). Find the release's commit hash on the [releases page](https://github.com/bluesky-social/pds/releases); e.g. `v0.4.5026`, the release this chart version was updated against, is commit `15a4f61...`, so `--set image.tag=sha-15a4f6147e2c62137fc51c4d1eb257fff173ed6c`
+- **Set `image.pullPolicy=Always`.** Rejected as this chart's default: it re-checks the registry on every pod start, and with a rolling tag, nodes can still end up on different images depending on when each one last started a pod, which reintroduces exactly the drift pinning avoids
+
+## Metrics (OpenTelemetry)
+
+The user-facing switch is `telemetry.enabled`. When on, the chart adds two things to the PDS container's env: `NODE_OPTIONS=--import=@atproto/pds/telemetry`, which makes Node load the OpenTelemetry SDK already bundled inside the PDS image, and a set of `OTEL_*` variables telling that SDK where to send metrics. Everything in this section is about those env vars; no sidecar, agent, or extra container is involved.
+
+Telemetry is off by default. When enabled, the PDS **pushes** metrics over OTLP to `telemetry.metricsEndpoint`; it does not expose a `/metrics` endpoint to scrape. You get HTTP (inbound and outbound), SQLite, S3 blobstore, and Node.js runtime metrics; XRPC request rate and latency normalized by method NSID; and three business counters: `account_created_total`, `session_created_total`, and `oauth_authorization_total`. Per-account detail (DIDs, OAuth client IDs) is deliberately kept out of metric labels to keep cardinality low; it appears only in log records, and the logs signal stays off unless you enable it separately (see `telemetry.extraEnv` below).
+
+You need an OTLP receiver reachable from the pod:
+
+- A Prometheus v3 with its OTLP receiver enabled (`--web.enable-otlp-receiver`) ingests this directly, no OpenTelemetry Collector needed in between. Point `telemetry.metricsEndpoint` at `http://<prometheus-svc>.<namespace>.svc:9090/api/v1/otlp/v1/metrics`
+- Or any OpenTelemetry Collector's OTLP HTTP port, if you'd rather fan out to other backends from there
+- The upstream repo's [`monitoring/`](https://github.com/bluesky-social/pds/tree/main/monitoring) directory is a ready-made Prometheus + Grafana + node_exporter stack with a "PDS Overview" dashboard, but it's docker-compose based, built for the upstream compose deployment, so this chart doesn't deploy it. Its dashboard JSON ([`pds-overview.json`](https://github.com/bluesky-social/pds/blob/main/monitoring/dashboards/pds-overview.json)) is still reusable in any Grafana whose Prometheus receives these metrics. That dashboard is built against the stable HTTP semantic-convention metric names, which is why the chart sets `OTEL_SEMCONV_STABILITY_OPT_IN=http` by default
+
+**Check your image before enabling.** Telemetry shipped in `@atproto/pds` 0.5.26. On an older image the `--import` path doesn't exist, so the PDS exits with `ERR_PACKAGE_PATH_NOT_EXPORTED` and crash-loops. Supported images carry the label `social.bsky.pds.telemetry` with value `otel`. Because `0.4` is a rolling tag, your nodes may well be caching a pre-telemetry image; see [The rolling `0.4` image tag](#the-rolling-04-image-tag) for how to get a new enough one deterministically.
+
+The remaining `telemetry.*` values (`serviceName`, `metricsProtocol`, `metricExportInterval`, `semconvStabilityOptIn`, `nodeResourceDetectors`) default to upstream's recommended settings and rarely need touching. Two details worth knowing:
+
+- `telemetry.nodeResourceDetectors` deliberately drops the SDK's default AWS/GCP/Azure detectors, which probe cloud metadata services at startup and log a `MetadataLookupWarning` on every boot on non-cloud clusters like a homelab
+- The chart sets the metrics-specific `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` rather than the generic `OTEL_EXPORTER_OTLP_ENDPOINT` on purpose: the PDS enables exactly the OTel signals you configure, so this turns on metrics while leaving traces and logs off. To add those, put their endpoint variables (e.g. `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`) in `telemetry.extraEnv`, which the chart renders verbatim as additional env vars
 
 ## Publishing the chart
 
@@ -280,14 +326,14 @@ curl -s http://node-01.local:32000/v2/_catalog | jq
 curl -s http://node-01.local:32000/v2/charts/pds/tags/list | jq
 
 # Inspect chart metadata for a specific version
-helm show chart oci://node-01.local:32000/charts/pds --version 0.1.0 --plain-http
+helm show chart oci://node-01.local:32000/charts/pds --version 0.2.0 --plain-http
 ```
 
 Install directly from it:
 
 ```bash
 helm upgrade --install pds oci://node-01.local:32000/charts/pds \
-  --version 0.1.0 --plain-http \
+  --version 0.2.0 --plain-http \
   --namespace pds --create-namespace \
   --set config.hostname=yourdomain.com \
   --set blobstore.endpoint=http://192.168.1.100:7480 \
@@ -345,7 +391,7 @@ curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
 Inspect chart metadata for a specific version (works with either auth method):
 
 ```bash
-helm show chart oci://ghcr.io/<github-user>/charts/pds --version 0.1.0
+helm show chart oci://ghcr.io/<github-user>/charts/pds --version 0.2.0
 ```
 
 Install with `helm upgrade` as shown in the TL;DR section.
@@ -616,13 +662,13 @@ bash scripts/tombstone-did.sh did:plc:xxxx
 - **PLC rotation key:** One secp256k1 private key for the entire server (not one per user). The PDS server's own identity is a `did:web` derived from `config.hostname`; no PLC key is needed for that. User accounts, however, get `did:plc` identities registered on `plc.directory` at account-creation time. Each genesis operation includes a `rotationKeys` list; this server key is always one of them, giving the server signing authority for future DID updates (handle changes, PDS hostname migrations). Back it up outside the cluster (password manager, hardware key). Loss means the server cannot perform DID updates for any hosted account
 - **User-owned rotation keys:** A `did:plc` document supports up to 5 rotation keys ordered by descending authority (index 0 = highest). Any rotation key can sign a DID update, but within a 72-hour window a higher-authority key can dispute and override an operation signed by a lower-authority key. A user who adds their own rotation key at index 0 (via AT Protocol tooling or a Bluesky client that exposes this) and keeps the server's key at index 1 can sign DID updates independently, meaning they can migrate to another PDS even if this server loses its `plcRotationKey` or disappears entirely. Without a user-owned key, the server's key is the only rotation authority and its loss permanently freezes the account's DID
 - **Email:** Without SMTP, account email verification links will not be delivered. Bluesky app clients may warn users that email is unverified
-- **Blob upload timeout on resource-constrained RGW:** the PDS aborts a blob upload after `blobstore.uploadTimeoutMs` (default 20000ms upstream) if the S3 blobstore hasn't finished accepting it. On a resource-constrained RGW node (e.g. a Raspberry Pi also carrying mon/OSD/control-plane duties), a burst of concurrent uploads, such as an account migration via a tool, can push individual PUTs past that window, surfacing as `500 Internal Server Error` / `Blob upload timed out` in the migration tool's console (and sometimes a misleading CORS error alongside it, if the connection drops before any response headers arrive) even though the underlying Ceph cluster is healthy. Raise `blobstore.uploadTimeoutMs` (e.g. `60000`) on constrained hardware to give it more headroom
+- **Blob upload timeout on resource-constrained RGW:** the PDS aborts a blob upload after `blobstore.uploadTimeoutMs` (default 20000ms upstream) if the S3 blobstore hasn't finished accepting it. On a resource-constrained RGW node (e.g. a Raspberry Pi also carrying mon/OSD/control-plane duties), a burst of concurrent uploads, such as an account migration via a tool, can push individual PUTs past that window, surfacing as `500 Internal Server Error` / `Blob upload timed out` in the migration tool's console (and sometimes a misleading CORS error alongside it, if the connection drops before any response headers arrive) even though the underlying Ceph cluster is healthy. Raise `blobstore.uploadTimeoutMs` (e.g. `60000`) on constrained hardware to give it more headroom. This matters more since chart 0.2.0, which follows upstream's August 2026 release in raising the default `config.blobUploadLimit` from 100 MB to 300 MB (sized for roughly 10-minute videos at 3 Mbit/s): a single maximum-size upload now needs a sustained ~15 MB/s into RGW to fit the default 20-second window. Set `config.blobUploadLimit` back to `104857600` explicitly if you'd rather keep the old cap
 - **Wildcard DNS:** `*.yourdomain.com` must resolve to the tunnel so user handles are verifiable by other ATProto services. DNS resolving is not sufficient on its own if `config.hostname` is a subdomain rather than the apex. See [Prerequisites](#prerequisites); without Total TLS (or zone delegation) in that case, Cloudflare drops the TLS handshake for user handles before the request reaches the tunnel, even though the root PDS hostname itself works fine
-- **Uptime monitoring:** point an HTTP(s) monitor (e.g. [Uptime Kuma](https://github.com/louislam/uptime-kuma), which you can easily deploy with [my chart](https://github.com/santisbon/uptime)) at `https://yourdomain.com/xrpc/_health`, expecting a `200` status. This is the same unauthenticated endpoint this chart's own liveness/readiness probes use, and checking the public hostname (not an internal ClusterIP) validates the full path: Cloudflare edge → tunnel → Service → pod — rather than just "the pod is alive". It's worth setting up alerts too so you'll know immediately if it goes down (see my Uptime Kuma chart for details)
+- **Uptime monitoring:** point an HTTP(s) monitor (e.g. [Uptime Kuma](https://github.com/louislam/uptime-kuma), which you can easily deploy with [my chart](https://github.com/santisbon/uptime)) at `https://yourdomain.com/xrpc/_health`, expecting a `200` status. This is the same unauthenticated endpoint this chart's own liveness/readiness probes use, and checking the public hostname (not an internal ClusterIP) validates the full path: Cloudflare edge → tunnel → Service → pod — rather than just "the pod is alive". It's worth setting up alerts too so you'll know immediately if it goes down (see my Uptime Kuma chart for details). For visibility beyond up/down (request rates, latency, accounts and sessions created), see [Metrics (OpenTelemetry)](#metrics-opentelemetry)
 - **[Litestream](https://github.com/benbjohnson/litestream):** Not included in this chart but worth considering for critical workloads like running a paid service hosting customer AT Protocol accounts. The PDS keeps three shared databases (`account.sqlite`, `sequencer.sqlite`, `did_cache.sqlite`) plus a **separate SQLite file per user account** under `actors/<hash>/<did>/store.sqlite` — a new one appears every time someone signs up. Litestream (`v0.5.3+`) has a directory-replication mode built for exactly this "multi-tenant databases" case: point it at the `actors/` tree with `watch: true` and it discovers and streams new per-user files as they're created, alongside static entries for the three shared DBs.
 
   What it would actually get you over Ceph RBD's 3× block-level replication ([replicated, not erasure-coded, per Canonical's own guidance for latency-sensitive workloads](https://github.com/canonical/microceph/blob/main/docs/snap/explanation/canonical-ceph-reference-architecture/replication-vs-erasure-coding.rst)): Ceph protects against a single disk/node failing *within this cluster*. All three replicas are identical, in the same place, updated instantly, including any corruption or bad write. It's not point-in-time recovery, and it's gone along with everything else if the PVC itself is deleted (e.g. `helm uninstall`, see Uninstall below) or if the whole cluster is lost. Litestream instead continuously streams the WAL to an external destination (ideally off-cluster/off-site), giving you (1) survivability independent of this cluster/PVC entirely, and (2) a rollback history you can restore to a point *before* a bad migration, accidental deletion, or corruption — something Ceph's replication can't give you, since it just replicates whatever was written, good or bad, everywhere, immediately. It's a genuine addition, not a duplicate of what Ceph already does; it only covers the SQLite side, not the RGW-hosted blobs
-- **No automatic image updates:** the [upstream reference `compose.yaml`](https://github.com/bluesky-social/pds/blob/main/compose.yaml) runs a [Watchtower](https://github.com/nicholas-fedor/watchtower) container that auto-updates the PDS nightly. This chart has no equivalent as `image.tag` and `cloudflare.image.tag` in `values.yaml` are pinned and change only when you bump them and run `helm upgrade`. Watchtower itself is a poor fit for Kubernetes. [Its README says](https://github.com/nicholas-fedor/watchtower#readme) that it's not recommended for commercial or production use at all, pointing production/Kubernetes users elsewhere instead. It requires a Docker Engine API (typically the Docker socket; MicroK8s runs containerd instead, so there isn't one), and even where Docker is available it mutates containers directly (pull image, stop container, restart with the same options) rather than through the Kubernetes API, bypassing rolling updates and causing drift from the cluster's declared state. None are included in this chart, but these are ways to automate image updates properly in Kubernetes/GitOps workflows instead:
+- **No automatic image updates:** the [upstream reference `compose.yaml`](https://github.com/bluesky-social/pds/blob/main/compose.yaml) runs a [Watchtower](https://github.com/nicholas-fedor/watchtower) container that auto-updates the PDS nightly. This chart has no equivalent as `image.tag` and `cloudflare.image.tag` in `values.yaml` are pinned and change only when you bump them and run `helm upgrade` (with the caveat that the default `image.tag` `"0.4"` is upstream's rolling tag, so true pinning means a `sha-<commit>` tag; see [The rolling `0.4` image tag](#the-rolling-04-image-tag)). Watchtower itself is a poor fit for Kubernetes. [Its README says](https://github.com/nicholas-fedor/watchtower#readme) that it's not recommended for commercial or production use at all, pointing production/Kubernetes users elsewhere instead. It requires a Docker Engine API (typically the Docker socket; MicroK8s runs containerd instead, so there isn't one), and even where Docker is available it mutates containers directly (pull image, stop container, restart with the same options) rather than through the Kubernetes API, bypassing rolling updates and causing drift from the cluster's declared state. None are included in this chart, but these are ways to automate image updates properly in Kubernetes/GitOps workflows instead:
   - **[Flux's image-automation controller](https://github.com/fluxcd/flux2)** — part of Flux CD; updates image references in your Git repo's manifests and lets Flux's normal GitOps reconciliation apply the change from there. A proper Kubernetes Operator: defines its own `ImageUpdateAutomation` CRD
   - **[Argo CD Image Updater](https://github.com/argoproj-labs/argocd-image-updater)** — a companion project for Argo CD specifically; updates image references on an Argo CD Application, either via Git or by patching the Application directly. Also a proper Kubernetes Operator, with its own CRD
   - **[Keel](https://github.com/keel-hq/keel)** — watches registries and mutates the live Deployment/StatefulSet directly, no Git involved. Runs in-cluster but works off annotations on existing resources. Technically a controller rather than an operator by strict definition (no CRDs of its own) but commonly called an operator
@@ -789,8 +835,11 @@ cloudflared tunnel delete pds
 | MB | Megabyte |
 | mDNS | Multicast DNS — a protocol for resolving hostnames on a local network without a central DNS server (`.local` addresses); does not resolve inside Kubernetes pods |
 | Mi | Mebibyte — a binary unit (2^20 bytes = 1,048,576 bytes), distinct from the decimal Megabyte (MB, 10^6 bytes); Kubernetes reports pod memory in this unit |
+| NSID | Namespaced Identifier — AT Protocol's reverse-domain method naming scheme, e.g. `com.atproto.server.describeServer` |
 | OCI | Open Container Initiative — the standard for container image formats and registries |
 | OSD | Object Storage Daemon — the Ceph process responsible for storing data on a single storage device |
+| OTel | OpenTelemetry — an open standard and SDK for emitting metrics, traces, and logs from applications |
+| OTLP | OpenTelemetry Protocol — the wire protocol OpenTelemetry uses to push metrics, traces, and logs to a receiver |
 | PAT | Personal Access Token — a GitHub credential used in place of a password for API or registry access |
 | PDS | Personal Data Server — the AT Protocol server that hosts your account, DID, and data repo |
 | PLC | Public Ledger of Credentials — the AT Protocol DID method (`did:plc`), originally intended as a placeholder but now the primary method used by Bluesky |
@@ -814,3 +863,4 @@ cloudflared tunnel delete pds
 | USB | Universal Serial Bus |
 | WAF | Web Application Firewall — filters HTTP traffic to a web application to block common attacks |
 | WAL | Write-Ahead Log — a database's append-only log of pending changes, used here for Litestream's continuous replication of the PDS's SQLite databases |
+| XRPC | AT Protocol's HTTP API convention — endpoints live under `/xrpc/<NSID>`, e.g. `/xrpc/_health` |
