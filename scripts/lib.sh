@@ -2,11 +2,16 @@
 # Shared helpers for the scripts in this directory. Not meant to be run
 # directly - source it from another script.
 
+# kubectl command to use. Override it when the cluster is reached through a
+# wrapper instead of a local kubeconfig:
+#   KUBECTL=/path/to/wrapper ./create-invite-code.sh example.com 1
+KUBECTL="${KUBECTL:-kubectl}"
+
 # Read a single key out of the chart's generated Secret.
 # Usage: k8s_secret <key> [release] [namespace]
 k8s_secret() {
   local key="$1" release="${2:-pds}" namespace="${3:-pds}"
-  kubectl get secret "$release" -n "$namespace" -o jsonpath="{.data.${key}}" | base64 -d
+  "$KUBECTL" get secret "$release" -n "$namespace" -o jsonpath="{.data.${key}}" | base64 -d
 }
 
 # Create a throwaway npm project with the given packages installed, and print

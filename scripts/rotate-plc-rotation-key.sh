@@ -3,6 +3,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 CHART="${CHART:-oci://ghcr.io/santisbon/charts/pds}"
+# See lib.sh: override KUBECTL when the cluster needs a wrapper.
+KUBECTL="${KUBECTL:-kubectl}"
 
 if [[ $# -lt 1 ]]; then
   echo "Usage: $0 <chart-version> [key-file] [release] [namespace]" >&2
@@ -42,8 +44,8 @@ else
   helm upgrade "$RELEASE" "$CHART" --version "$VERSION" --namespace "$NAMESPACE" \
     --reuse-values --set credentials.plcRotationKey="$NEW_HEX"
 fi
-kubectl rollout restart "deployment/${RELEASE}" -n "$NAMESPACE"
-kubectl rollout status "deployment/${RELEASE}" -n "$NAMESPACE"
+"$KUBECTL" rollout restart "deployment/${RELEASE}" -n "$NAMESPACE"
+"$KUBECTL" rollout status "deployment/${RELEASE}" -n "$NAMESPACE"
 
 rm "$KEY_FILE"
 echo "Rotated ${RELEASE}/${NAMESPACE} to the new plcRotationKey. ${KEY_FILE} removed." >&2
